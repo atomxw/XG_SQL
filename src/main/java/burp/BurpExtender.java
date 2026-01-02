@@ -4,10 +4,7 @@ import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
+import java.awt.event.*;
 import java.io.*;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -19,7 +16,7 @@ import java.util.List;
 
 public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IHttpListener, IScannerCheck, IMessageEditorController, IContextMenuFactory {
 
-    String version = "1.5";
+    String version = "1.5.2";
     private final List<LogEntry> log_raw = new ArrayList<LogEntry>();//记录原始流量
     private final List<LogEntry> log2 = new ArrayList<LogEntry>();//记录攻击流量
     private final List<LogEntry> log_show = new ArrayList<LogEntry>();//用于展现
@@ -475,7 +472,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
             IHttpRequestResponse[] responses = invocation.getSelectedMessages();
 
             JMenuItem jMenu = new JMenuItem("Send to XG_SQL");
-            jMenu.addActionListener(new ActionListener() {
+            ActionListener actionListener = new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     if (switchs == 1) {
@@ -494,7 +491,12 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                         BurpExtender.this.stdout.println("插件XG_SQL关闭状态！");
                     }
                 }
-            });
+            };
+            jMenu.addActionListener(actionListener);
+            // 设置快捷键
+            int modifiers = Toolkit.getDefaultToolkit().getMenuShortcutKeyMask() | InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK;
+            KeyStroke keyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_I, modifiers);
+            jMenu.setAccelerator(keyStroke);
 
             JMenuItem jMenu_json = new JMenuItem("Send to JsonParam");
             jMenu_json.addActionListener(new ActionListener() {
@@ -709,9 +711,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                     if(para.getType() == 6){
                         int valueStart = para.getValueStart();
                         int valueEnd = para.getValueEnd();
+                        payload = payload.replace("\"","\\\"");
                         String payload_json;
 
-                        if(para.getValue().contains("true")||para.getValue().contains("false")||para.getValue().contains("null")){
+                        if(para.getValue().equalsIgnoreCase("true")||para.getValue().equalsIgnoreCase("false")||para.getValue().equalsIgnoreCase("null")){
                             payload_json = "\""+payload+"\"";
                         }else{
                             if(request_raw[valueStart-1]==34){
@@ -768,8 +771,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                             stdout.println("##########################################\n");
                         }
                     }
-
-
 
                     //判断数据长度是否会变化
                     String change_sign;//第二个表格中 变化 的内容
@@ -841,11 +842,14 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                 }else if(contentType.contains("application/json")){
                     for (String order_par : order_list){
                         if( is_sleep == true ){Thread.sleep(sleep_time);}//放缓请求速度
+//                        String s = new String(request_raw,StandardCharsets.ISO_8859_1);
+                        String[] split = (new String(request_raw, StandardCharsets.ISO_8859_1)).split("\r\n\r\n");
+                        int length = split[0].length();
+                        String s = split[1];
 
-                        String s = new String(request_raw,StandardCharsets.ISO_8859_1);
                         List<Integer> positions = findAllBracePositionsInJson(s);
                         for (int ii: positions){
-                            int valueStart = ii;
+                            int valueStart = ii+length+4;
 
                             String payload_json = ",\""+order_par+"\":\""+order_value+"\"";
                             byte[] new_Requests_raw = new byte[request_raw.length+payload_json.length()];
@@ -916,6 +920,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
             if (para.getType() == 0 || para.getType() == 1 || para.getType() == 6) { //判断参数是在那个位置的
                 String key = para.getName();//获取参数的名称
                 String value_raw = para.getValue();//获取参数的值
+                int value_raw_length = para.getValue().length();
 
                 String encode;
                 if(value_raw.startsWith("{\"")||value_raw.startsWith("[{\"")){
@@ -988,8 +993,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                     for (String payload : payloads) {
                         int GG_valueStart = GG_para.getValueStart();
                         int GG_valueEnd = GG_para.getValueEnd();
+                        payload = payload.replace("\"","\\\"");
                         String GG_payload_json;
-                        if(GG_value_raw.contains("true")||GG_value_raw.contains("false")||GG_value_raw.contains("null")){
+                        if(GG_value_raw.equalsIgnoreCase("true")||GG_value_raw.equalsIgnoreCase("false")||GG_value_raw.equalsIgnoreCase("null")){
                             GG_payload_json = "\""+payload+"\"";
                         }else{
                             if(GG_raw[GG_valueStart-1]==34){
@@ -1010,7 +1016,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                                 GG_json_data = URLencode(GG_json_data);
                                 break;
                             case "JSON":
-                                GG_json_data = GG_json_data.replace("\"","\\\"");
+                                GG_json_data = GG_json_data.replace("\\\"","\\\\\"").replace("\"","\\\"");
                                 break;
                             default:
                         }
@@ -1021,7 +1027,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                         int valueStart = para.getValueStart();
                         int valueEnd = para.getValueEnd();
                         String payload_json = GG_json_data;
-                        byte[] new_Requests_raw = new byte[request_raw.length-value_raw.length()+payload_json.length()];
+                        byte[] new_Requests_raw = new byte[request_raw.length-value_raw_length+payload_json.length()];
                         byte[] newValueBytes = payload_json.getBytes(StandardCharsets.ISO_8859_1);
                         System.arraycopy(request_raw, 0, new_Requests_raw, 0, valueStart);
                         System.arraycopy(newValueBytes, 0, new_Requests_raw, valueStart, newValueBytes.length);
@@ -1051,8 +1057,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
                                 } else{
                                     change_sign_2 = "";
                                 }
-                            }
-                            else {
+                            } else {
                                 if (time_2 - time_1 >= 3000) {
                                     change_sign_2 = "time > 3";
                                     change_sign_1 = "✔";
@@ -1386,5 +1391,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
         }
         return positions;
     }
+
 
 }
